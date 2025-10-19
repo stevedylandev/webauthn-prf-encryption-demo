@@ -1,0 +1,36 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "webauthn-server",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-05-25",
+	"compatibility_flags": ["nodejs_compat"],
+	// "vars": {
+	// 	"MY_VAR": "my-variable"
+	// },
+	// "kv_namespaces": [
+	//   {
+	//     "binding": "MY_KV_NAMESPACE",
+	//     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+	//   }
+	// ],
+	"r2_buckets": [
+		{
+			"bucket_name": "e2ee-rss-sqlite-files",
+			"binding": "R2_BUCKET"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "e2ee-rss-db",
+			"database_id": "86fcbaff-e9ce-446d-b746-1b357f9a04e0"
+		}
+	]
+	// "ai": {
+	//   "binding": "AI"
+	// },
+	// "observability": {
+	//   "enabled": true,
+	//   "head_sampling_rate": 1
+	// }
+}
