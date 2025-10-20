@@ -37,4 +37,7 @@ export type User = {
 	id: number;
 	username: string;
 	created_at: string;
+	prf_salt?: string;
+	encrypted_blob_key?: string;
+	blob_nonce?: string;
 };

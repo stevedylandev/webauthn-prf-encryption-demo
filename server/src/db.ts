@@ -162,3 +162,50 @@ export async function updatePasskeyCounter(
 		.bind(newCounter, credId)
 		.run();
 }
+
+export async function saveUserBlobReference(
+	db: D1Database,
+	userId: number,
+	blobKey: string,
+	nonce: string,
+) {
+	await db
+		.prepare(
+			"UPDATE users SET encrypted_blob_key = ?, blob_nonce = ? WHERE id = ?",
+		)
+		.bind(blobKey, nonce, userId)
+		.run();
+}
+
+export async function getUserBlobReference(
+	db: D1Database,
+	userId: number,
+): Promise<{ encrypted_blob_key: string; blob_nonce: string } | null> {
+	const result = await db
+		.prepare("SELECT encrypted_blob_key, blob_nonce FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ encrypted_blob_key: string; blob_nonce: string }>();
+	return result;
+}
+
+export async function saveUserPrfSalt(
+	db: D1Database,
+	userId: number,
+	prfSalt: string,
+) {
+	await db
+		.prepare("UPDATE users SET prf_salt = ? WHERE id = ?")
+		.bind(prfSalt, userId)
+		.run();
+}
+
+export async function getUserPrfSalt(
+	db: D1Database,
+	userId: number,
+): Promise<string | null> {
+	const result = await db
+		.prepare("SELECT prf_salt FROM users WHERE id = ?")
+		.bind(userId)
+		.first<{ prf_salt: string }>();
+	return result?.prf_salt || null;
+}

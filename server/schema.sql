@@ -2,8 +2,11 @@
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username VARCHAR NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  prf_salt TEXT,
+  encrypted_blob_key TEXT,
+  blob_nonce TEXT
+)
 
 -- Create passkeys table
 CREATE TABLE IF NOT EXISTS passkeys (
