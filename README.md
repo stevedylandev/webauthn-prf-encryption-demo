@@ -1,264 +1,109 @@
-# bhvr 🦫
+# WebAuthn PRF Demo
 
-![cover](https://cdn.stevedylan.dev/ipfs/bafybeievx27ar5qfqyqyud7kemnb5n2p4rzt2matogi6qttwkpxonqhra4)
+```mermaid
+sequenceDiagram
+    participant User
+    participant Client as Client (React App)
+    participant Browser as Browser WebAuthn API
+    participant Server as Server (Hono/Cloudflare)
+    participant DB as D1 Database
+    participant R2 as R2 Storage
 
-A full-stack TypeScript monorepo starter with shared types, using Bun, Hono, Vite, and React.
+    Note over User,R2: Registration Flow
+    User->>Client: Enter username & click Register
+    Client->>Client: Generate PRF Salt (32 bytes)
+    Client->>Server: POST /generate-registration-options
+    Server->>DB: Check if user exists, create if needed
+    DB-->>Server: User record
+    Server->>DB: Get existing passkeys
+    DB-->>Server: User passkeys
+    Server->>Server: Generate registration options (with PRF extension)
+    Server-->>Client: Registration options + challenge
+    Client->>Client: Add PRF extension (eval.first = prfSalt)
+    Client->>Browser: startRegistration(options)
+    Browser->>User: Prompt for biometric/PIN
+    User-->>Browser: Authenticate with device
+    Browser-->>Client: Registration response + PRF output
+    Client->>Server: POST /verify-registration (response)
+    Server->>Server: Verify registration response
+    Server->>DB: Save passkey (id, publicKey, counter, etc)
+    DB-->>Server: Success
+    Server-->>Client: {verified: true}
+    Client->>Server: POST /save-prf-salt (prfSalt base64)
+    Server->>DB: Save PRF salt for user
+    DB-->>Server: Success
+    Server-->>Client: Success
+    Client->>User: Registration successful!
 
-## Why bhvr?
+    Note over User,R2: Authentication Flow
+    User->>Client: Enter username & click Authenticate
+    Client->>Server: POST /get-prf-salt
+    Server->>DB: Get user's PRF salt
+    DB-->>Server: PRF salt (base64)
+    Server-->>Client: PRF salt
+    Client->>Client: Convert PRF salt to Uint8Array
+    Client->>Server: POST /generate-authentication-options
+    Server->>DB: Get user & passkeys
+    DB-->>Server: User passkeys
+    Server->>Server: Generate auth options (with PRF extension)
+    Server-->>Client: Auth options + challenge
+    Client->>Client: Add PRF extension (eval.first = prfSalt)
+    Client->>Browser: startAuthentication(options)
+    Browser->>User: Prompt for biometric/PIN
+    User-->>Browser: Authenticate with device
+    Browser-->>Client: Auth response + PRF output (32 bytes)
+    Client->>Server: POST /verify-authentication (response)
+    Server->>DB: Get passkey by credential ID
+    DB-->>Server: Passkey data
+    Server->>Server: Verify authentication response
+    Server->>DB: Update passkey counter
+    DB-->>Server: Success
+    Server-->>Client: {verified: true}
+    Client->>Server: POST /check-blob
+    Server->>DB: Check if user has encrypted blob
+    DB-->>Server: {hasBlob: true/false}
+    Server-->>Client: Blob status
+    Client->>Client: Store PRF output in state
+    Client->>User: Authenticated! (PRF encryption available)
 
-While there are plenty of existing app building stacks out there, many of them are either bloated, outdated, or have too much of a vendor lock-in. bhvr is built with the opinion that you should be able to deploy your client or server in any environment while also keeping type safety.
+    Note over User,R2: Encryption & Storage Flow
+    User->>Client: Enter secret message
+    User->>Client: Click "Encrypt & Store Message"
+    Client->>Client: Convert message to Uint8Array
+    Client->>Client: Generate nonce (12 bytes)
+    Client->>Client: deriveEncryptionKey(prfOutput) via HKDF
+    Client->>Client: encryptData(key, message, nonce) via AES-GCM-256
+    Client->>Client: Convert encrypted data to base64
+    Client->>Server: POST /store-blob (encryptedBlob, nonce)
+    Server->>DB: Get user
+    DB-->>Server: User record
+    Server->>Server: Generate blob key: "user-{id}-blob"
+    Server->>Server: Convert base64 to ArrayBuffer
+    Server->>R2: PUT encrypted blob with key
+    R2-->>Server: Success
+    Server->>DB: Save blob reference & nonce
+    DB-->>Server: Success
+    Server-->>Client: {success: true}
+    Client->>User: Successfully encrypted and stored!
 
-## Features
+    Note over User,R2: Decryption & Retrieval Flow
+    User->>Client: Click "Retrieve & Decrypt Message"
+    Client->>Server: POST /retrieve-blob
+    Server->>DB: Get user blob reference
+    DB-->>Server: {encrypted_blob_key, blob_nonce}
+    Server->>R2: GET blob by key
+    R2-->>Server: Encrypted blob (ArrayBuffer)
+    Server->>Server: Convert to base64
+    Server-->>Client: {encryptedBlob: base64, nonce: base64}
+    Client->>Client: Convert base64 to Uint8Array
+    Client->>Client: deriveEncryptionKey(prfOutput) via HKDF
+    Client->>Client: decryptData(key, ciphertext, nonce) via AES-GCM-256
+    Client->>Client: Convert decrypted bytes to string
+    Client->>User: Display decrypted message!
 
-- **Full-Stack TypeScript**: End-to-end type safety between client and server
-- **Shared Types**: Common type definitions shared between client and server
-- **Monorepo Structure**: Organized as a workspaces-based monorepo with Turbo for build orchestration
-- **Modern Stack**:
-  - [Bun](https://bun.sh) as the JavaScript runtime and package manager
-  - [Hono](https://hono.dev) as the backend framework
-  - [Vite](https://vitejs.dev) for frontend bundling
-  - [React](https://react.dev) for the frontend UI
-  - [Turbo](https://turbo.build) for monorepo build orchestration and caching
-
-## Project Structure
-
+    Note over User,R2: Key Technologies
+    Note over Client: - React + Vite<br/>- @simplewebauthn/browser<br/>- Web Crypto API (HKDF, AES-GCM)
+    Note over Server: - Hono framework<br/>- @simplewebauthn/server<br/>- Cloudflare Workers
+    Note over DB: - D1 Database (SQLite)<br/>- Tables: users, passkeys
+    Note over R2: - R2 Object Storage<br/>- Stores encrypted blobs
 ```
-.
-├── client/               # React frontend
-├── server/               # Hono backend
-├── shared/               # Shared TypeScript definitions
-│   └── src/types/        # Type definitions used by both client and server
-├── package.json          # Root package.json with workspaces
-└── turbo.json            # Turbo configuration for build orchestration
-```
-
-### Server
-
-bhvr uses Hono as a backend API for its simplicity and massive ecosystem of plugins. If you have ever used Express then it might feel familiar. Declaring routes and returning data is easy.
-
-```
-server
-├── bun.lock
-├── package.json
-├── README.md
-├── src
-│   └── index.ts
-└── tsconfig.json
-```
-
-```typescript src/index.ts
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
-import type { ApiResponse } from 'shared/dist'
-
-const app = new Hono()
-
-app.use(cors())
-
-app.get('/', (c) => {
-  return c.text('Hello Hono!')
-})
-
-app.get('/hello', async (c) => {
-
-  const data: ApiResponse = {
-    message: "Hello BHVR!",
-    success: true
-  }
-
-  return c.json(data, { status: 200 })
-})
-
-export default app
-```
-
-If you wanted to add a database to Hono you can do so with a multitude of Typescript libraries like [Supabase](https://supabase.com), or ORMs like [Drizzle](https://orm.drizzle.team/docs/get-started) or [Prisma](https://www.prisma.io/orm)
-
-### Client
-
-bhvr uses Vite + React Typescript template, which means you can build your frontend just as you would with any other React app. This makes it flexible to add UI components like [shadcn/ui](https://ui.shadcn.com) or routing using [React Router](https://reactrouter.com/start/declarative/installation).
-
-```
-client
-├── eslint.config.js
-├── index.html
-├── package.json
-├── public
-│   └── vite.svg
-├── README.md
-├── src
-│   ├── App.css
-│   ├── App.tsx
-│   ├── assets
-│   ├── index.css
-│   ├── main.tsx
-│   └── vite-env.d.ts
-├── tsconfig.app.json
-├── tsconfig.json
-├── tsconfig.node.json
-└── vite.config.ts
-```
-
-```typescript src/App.tsx
-import { useState } from 'react'
-import beaver from './assets/beaver.svg'
-import { ApiResponse } from 'shared'
-import './App.css'
-
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:3000"
-
-function App() {
-  const [data, setData] = useState<ApiResponse | undefined>()
-
-  async function sendRequest() {
-    try {
-      const req = await fetch(`${SERVER_URL}/hello`)
-      const res: ApiResponse = await req.json()
-      setData(res)
-    } catch (error) {
-      console.log(error)
-    }
-  }
-
-  return (
-    <>
-      <div>
-        <a href="https://github.com/stevedylandev/bhvr" target="_blank">
-          <img src={beaver} className="logo" alt="beaver logo" />
-        </a>
-      </div>
-      <h1>bhvr</h1>
-      <h2>Bun + Hono + Vite + React</h2>
-      <p>A typesafe fullstack monorepo</p>
-      <div className="card">
-        <button onClick={sendRequest}>
-          Call API
-        </button>
-        {data && (
-          <pre className='response'>
-            <code>
-            Message: {data.message} <br />
-            Success: {data.success.toString()}
-            </code>
-          </pre>
-        )}
-      </div>
-      <p className="read-the-docs">
-        Click the beaver to learn more
-      </p>
-    </>
-  )
-}
-
-export default App
-```
-
-### Shared
-
-The Shared package is used for anything you want to share between the Server and Client. This could be types or libraries that you use in both environments.
-
-```
-shared
-├── package.json
-├── src
-│   ├── index.ts
-│   └── types
-│       └── index.ts
-└── tsconfig.json
-```
-
-Inside the `src/index.ts` we export any of our code from the folders so it's usable in other parts of the monorepo
-
-```typescript
-export * from "./types"
-```
-
-By running `bun run dev` or `bun run build` it will compile and export the packages from `shared` so it can be used in either `client` or `server`
-
-```typescript
-import { ApiResponse } from 'shared'
-```
-
-## Getting Started
-
-### Quick Start
-
-You can start a new bhvr project using the [CLI](https://github.com/stevedylandev/create-bhvr)
-
-```bash
-bun create bhvr
-```
-
-### Installation
-
-```bash
-# Install dependencies for all workspaces
-bun install
-```
-
-### Development
-
-```bash
-# Run all workspaces in development mode with Turbo
-bun run dev
-
-# Or run individual workspaces directly
-bun run dev:client    # Run the Vite dev server for React
-bun run dev:server    # Run the Hono backend
-```
-
-### Building
-
-```bash
-# Build all workspaces with Turbo
-bun run build
-
-# Or build individual workspaces directly
-bun run build:client  # Build the React frontend
-bun run build:server  # Build the Hono backend
-```
-
-### Additional Commands
-
-```bash
-# Lint all workspaces
-bun run lint
-
-# Type check all workspaces
-bun run type-check
-
-# Run tests across all workspaces
-bun run test
-```
-
-### Deployment
-
-Deplying each piece is very versatile and can be done numerous ways, and exploration into automating these will happen at a later date. Here are some references in the meantime.
-
-**Client**
-- [Orbiter](https://orbiter.host)
-- [GitHub Pages](https://vite.dev/guide/static-deploy.html#github-pages)
-- [Netlify](https://vite.dev/guide/static-deploy.html#netlify)
-- [Cloudflare Pages](https://vite.dev/guide/static-deploy.html#cloudflare-pages)
-
-**Server**
-- [Cloudflare Worker](https://gist.github.com/stevedylandev/4aa1fc569bcba46b7169193c0498d0b3)
-- [Bun](https://hono.dev/docs/getting-started/bun)
-- [Node.js](https://hono.dev/docs/getting-started/nodejs)
-
-## Type Sharing
-
-Types are automatically shared between the client and server thanks to the shared package and TypeScript path aliases. You can import them in your code using:
-
-```typescript
-import { ApiResponse } from 'shared/types';
-```
-
-## Learn More
-
-- [Bun Documentation](https://bun.sh/docs)
-- [Vite Documentation](https://vitejs.dev/guide/)
-- [React Documentation](https://react.dev/learn)
-- [Hono Documentation](https://hono.dev/docs)
-- [Turbo Documentation](https://turbo.build/docs)
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
